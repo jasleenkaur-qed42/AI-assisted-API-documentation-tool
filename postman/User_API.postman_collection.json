@@ -1,0 +1,494 @@
+{
+  "info": {
+    "_postman_id": "03903d54-89ee-4bd2-9f80-5ca6e4f42679",
+    "name": "User API",
+    "description": "Postman collection for the User API of my-express-app (Express 5 + better-sqlite3). Mounted at /api/users. Covers CRUD operations on the `users` table (`id`, `name`, `email` (unique)). Generated from a direct read of src/controllers/userController.js and src/routes/userRoutes.js. Requests are ordered to run sequentially (Collection Runner / newman) so that variables set by earlier requests (`userId`, `userEmail`) are available to later ones.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "userId",
+      "value": "",
+      "type": "string",
+      "description": "Populated by the Create User request; used by Get/Update/Delete User by ID."
+    },
+    {
+      "key": "userEmail",
+      "value": "",
+      "type": "string",
+      "description": "Populated by the Create User request; reused by Create User - Duplicate Email to trigger the UNIQUE constraint."
+    },
+    {
+      "key": "nonExistentUserId",
+      "value": "999999999",
+      "type": "string",
+      "description": "An id chosen to not exist in the users table, for 404 test cases."
+    }
+  ],
+  "item": [
+    {
+      "id": "c54e5668-9d11-4ecd-b36e-128adc85230f",
+      "name": "Get Users",
+      "description": "Returns all rows in the `users` table. No query-string filtering is supported by this endpoint (any query params are ignored). Returns 200 with an empty array `[]` when the table has no rows.",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Response body is an array', function () {",
+              "    const body = pm.response.json();",
+              "    pm.expect(body).to.be.an('array');",
+              "});",
+              "",
+              "pm.test('Each user has id, name, email fields', function () {",
+              "    const body = pm.response.json();",
+              "    body.forEach(function (user) {",
+              "        pm.expect(user).to.have.property('id');",
+              "        pm.expect(user).to.have.property('name');",
+              "        pm.expect(user).to.have.property('email');",
+              "    });",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/users",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "users"]
+        }
+      },
+      "response": []
+    },
+    {
+      "id": "1b2fff72-e64f-4ade-b927-6159bbea0604",
+      "name": "Create User",
+      "description": "Creates a user. Both `name` and `email` are required (checked via a truthy check, so `\"\"`, `0`, `false`, `null` are all treated as missing) — omitting either returns 400 `{ \"message\": \"Name and email are required\" }`. `email` has a UNIQUE constraint at the DB level; inserting a duplicate email is not validated in application code and throws a better-sqlite3 SqliteError, which the generic catch block turns into a 500 `{ \"error\": \"...UNIQUE constraint failed: users.email...\" }`. The success response echoes back the submitted `name`/`email` plus the generated `id` — it is not re-fetched from the DB.",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 201', function () {",
+              "    pm.response.to.have.status(201);",
+              "});",
+              "",
+              "pm.test('Response has message and user object', function () {",
+              "    const body = pm.response.json();",
+              "    pm.expect(body.message).to.eql('User created permanently!');",
+              "    pm.expect(body.user).to.have.property('id');",
+              "    pm.expect(body.user.name).to.eql('Jane Doe');",
+              "});",
+              "",
+              "pm.test('Created id is a positive integer', function () {",
+              "    const body = pm.response.json();",
+              "    pm.expect(body.user.id).to.be.a('number');",
+              "    pm.expect(body.user.id).to.be.above(0);",
+              "});",
+              "",
+              "// Persist id/email for downstream requests in this run",
+              "const body = pm.response.json();",
+              "pm.collectionVariables.set('userId', body.user.id);",
+              "pm.collectionVariables.set('userEmail', body.user.email);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"Jane Doe\",\n  \"email\": \"jane.doe.{{$timestamp}}@example.com\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/users",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "users"]
+        }
+      },
+      "response": []
+    },
+    {
+      "id": "660624a1-08f4-4bf9-925a-d8627c9f1a21",
+      "name": "Get User",
+      "description": "Returns a single user by `id`. `id` is passed unparsed to the SQL query; a non-existent or non-numeric id returns 404 `{ \"message\": \"User not found\" }` rather than a 500 (better-sqlite3 comparison does not throw for a non-matching value).",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Returned user matches the created user', function () {",
+              "    const body = pm.response.json();",
+              "    pm.expect(String(body.id)).to.eql(pm.collectionVariables.get('userId'));",
+              "    pm.expect(body.email).to.eql(pm.collectionVariables.get('userEmail'));",
+              "    pm.expect(body).to.have.property('name');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/users/{{userId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "users", "{{userId}}"]
+        }
+      },
+      "response": []
+    },
+    {
+      "id": "188a96fc-79d7-42eb-8114-49f1d7b41c5f",
+      "name": "Get User - Not Found",
+      "description": "Requests a user id that does not exist. Expects 404 `{ \"message\": \"User not found\" }`.",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 404', function () {",
+              "    pm.response.to.have.status(404);",
+              "});",
+              "",
+              "pm.test('Response has not-found message', function () {",
+              "    const body = pm.response.json();",
+              "    pm.expect(body.message).to.eql('User not found');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/users/{{nonExistentUserId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "users", "{{nonExistentUserId}}"]
+        }
+      },
+      "response": []
+    },
+    {
+      "id": "3f656ff7-9716-4a31-9c4c-9eaff1e60aef",
+      "name": "Create User - Missing Fields",
+      "description": "Omits `email` from the body. `createUser` checks `if (!name || !email)` before touching the DB, so this returns 400 `{ \"message\": \"Name and email are required\" }` without creating a row.",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 400', function () {",
+              "    pm.response.to.have.status(400);",
+              "});",
+              "",
+              "pm.test('Response has validation message', function () {",
+              "    const body = pm.response.json();",
+              "    pm.expect(body.message).to.eql('Name and email are required');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"No Email User\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/users",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "users"]
+        }
+      },
+      "response": []
+    },
+    {
+      "id": "a9cd6284-e7c9-419e-923e-f64e87f3f273",
+      "name": "Create User - Duplicate Email",
+      "description": "Reuses the email from the Create User request. There is no application-level duplicate check, so the INSERT throws a better-sqlite3 SqliteError on the `email` UNIQUE constraint, which the generic catch block returns as 500. Asserts on status and a substring of the error message rather than the exact full text, since it may vary slightly by SQLite/better-sqlite3 version.",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 500', function () {",
+              "    pm.response.to.have.status(500);",
+              "});",
+              "",
+              "pm.test('Response reports a UNIQUE constraint failure', function () {",
+              "    const body = pm.response.json();",
+              "    pm.expect(body).to.have.property('error');",
+              "    pm.expect(body.error).to.include('UNIQUE constraint failed');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"Duplicate Email User\",\n  \"email\": \"{{userEmail}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/users",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "users"]
+        }
+      },
+      "response": []
+    },
+    {
+      "id": "ce576850-2b51-4035-a5ca-0a11a20d21eb",
+      "name": "Update User",
+      "description": "Partially updates a user by `id`. `name` and `email` are both optional in the body. Important: fields are merged using `value || existingValue`, not a presence check — so sending an explicit falsy value (e.g. `\"\"`, `null`, `0`) for a field is indistinguishable from omitting it, and the existing value is kept (a field cannot be cleared to empty via this endpoint). Returns 404 `{ \"message\": \"User not found\" }` if the id does not exist (checked before the update). Success returns only `{ \"message\": \"User updated successfully\" }` — it does not return the updated user object. Updating `email` to a value already used by another user triggers the same UNIQUE-constraint 500 behavior as Create User.",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Response has success message (no user object returned)', function () {",
+              "    const body = pm.response.json();",
+              "    pm.expect(body.message).to.eql('User updated successfully');",
+              "    pm.expect(body).to.not.have.property('user');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"Jane Updated\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/users/{{userId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "users", "{{userId}}"]
+        }
+      },
+      "response": []
+    },
+    {
+      "id": "9d9c3efb-d631-4d00-9e4f-94c989e1eb2d",
+      "name": "Update User - Not Found",
+      "description": "PATCHes a non-existent user id. `updateUser` SELECTs the row first and returns 404 `{ \"message\": \"User not found\" }` before attempting the UPDATE.",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 404', function () {",
+              "    pm.response.to.have.status(404);",
+              "});",
+              "",
+              "pm.test('Response has not-found message', function () {",
+              "    const body = pm.response.json();",
+              "    pm.expect(body.message).to.eql('User not found');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"Does Not Matter\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/users/{{nonExistentUserId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "users", "{{nonExistentUserId}}"]
+        }
+      },
+      "response": []
+    },
+    {
+      "id": "090c6a36-5f14-4010-90d3-741c0c62e56e",
+      "name": "Delete User - Not Found",
+      "description": "Deletes a non-existent user id. `deleteUser` checks `info.changes === 0` and returns 404 `{ \"message\": \"User not found\" }`. Run before the real Delete User request so it does not interfere with the row still under test.",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 404', function () {",
+              "    pm.response.to.have.status(404);",
+              "});",
+              "",
+              "pm.test('Response has not-found message', function () {",
+              "    const body = pm.response.json();",
+              "    pm.expect(body.message).to.eql('User not found');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "DELETE",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/users/{{nonExistentUserId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "users", "{{nonExistentUserId}}"]
+        }
+      },
+      "response": []
+    },
+    {
+      "id": "cd69fcaf-9e36-43e8-b15b-45d73b78a74e",
+      "name": "Delete User",
+      "description": "Deletes a user by `id`. Returns 200 `{ \"message\": \"User with ID <id> deleted\" }` on success (the `<id>` in the message is the raw URL param, not a re-fetched/normalized value). Returns 404 `{ \"message\": \"User not found\" }` when no row matched (`info.changes === 0`), which also covers non-numeric ids. Not idempotent at the status-code level: deleting the same id twice returns 200 then 404.",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Response echoes the deleted id in the message', function () {",
+              "    const body = pm.response.json();",
+              "    pm.expect(body.message).to.eql('User with ID ' + pm.collectionVariables.get('userId') + ' deleted');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "DELETE",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/users/{{userId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "users", "{{userId}}"]
+        }
+      },
+      "response": []
+    },
+    {
+      "id": "5fec8187-f906-45ab-ab53-9ddd1bf4ea36",
+      "name": "Get User - After Delete",
+      "description": "Confirms the row created earlier in this run no longer exists after Delete User. Expects 404 `{ \"message\": \"User not found\" }`.",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 404', function () {",
+              "    pm.response.to.have.status(404);",
+              "});",
+              "",
+              "pm.test('Response has not-found message', function () {",
+              "    const body = pm.response.json();",
+              "    pm.expect(body.message).to.eql('User not found');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/users/{{userId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "users", "{{userId}}"]
+        }
+      },
+      "response": []
+    }
+  ]
+}
