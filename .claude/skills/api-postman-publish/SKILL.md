@@ -1,8 +1,10 @@
 ---
 
 name: api-postman-publish
+
 description: Publish validated API documentation and tests into the project-level Postman collection using Postman MCP.
------------------------------------------------------------------------------------------------------------------------
+
+---
 
 # API Postman Publish
 
@@ -18,15 +20,19 @@ Example:
 
 ```text
 Workspace
+
 └── my-express-app
+
     ├── User API
+
     │   ├── Get Users
     │   ├── Get User
     │   ├── Create User
     │   ├── Update User
     │   └── Delete User
-    │
+
     └── Product API
+
         ├── Get Products
         ├── Get Product
         └── Create Product
@@ -159,7 +165,7 @@ The local Postman Collection v2.1 format uses:
   {
     "listen": "test",
     "script": {
-      "exec": [...]
+      "exec": ["..."]
     }
   }
 ]
@@ -172,7 +178,7 @@ The `updateCollectionRequest` MCP operation uses:
   {
     "listen": "test",
     "script": {
-      "exec": [...]
+      "exec": ["..."]
     }
   }
 ]
@@ -182,18 +188,18 @@ Do not confuse these two shapes.
 
 ---
 
-# Step 5A: Preserve existing item IDs
+# Step 5A: Handle existing item IDs
 
 The local Postman collection is the source artifact.
 
 When publishing:
 
 1. Read the existing `id` from each folder/request item.
-2. Preserve that ID in the MCP payload.
-3. Do not regenerate an existing ID.
-4. Do not remove an existing ID.
+2. Preserve the ID in the MCP payload when the target MCP operation accepts or requires it.
+3. Do not arbitrarily remove IDs from a payload when the MCP schema requires them.
+4. Do not invent IDs for existing local items.
 5. Do not modify the local collection during publishing.
-6. If a required ID is missing, stop and report the missing ID.
+6. If an ID is required by the MCP operation but is missing locally, stop and report the missing ID.
 
 Example:
 
@@ -207,11 +213,19 @@ Example:
 }
 ```
 
-The published request must retain:
+### Important ID behavior
 
-```text
-get-users-id
-```
+Do not assume that a local item ID will necessarily become the final Postman resource ID after a collection creation operation.
+
+Some Postman creation operations may generate new resource IDs.
+
+Therefore:
+
+* Preserve local IDs in payloads where supported/required.
+* Do not modify the local collection merely because Postman generates different IDs.
+* After a create operation, capture the IDs returned by Postman.
+* Use the actual published Postman IDs for subsequent update operations and verification.
+* Never use a newly generated ID to modify the local collection.
 
 ### Missing ID
 
@@ -242,7 +256,9 @@ For every request, preserve supported fields including:
 
 ```text
 id
+
 name
+
 request
 ├── method
 ├── header
@@ -316,7 +332,165 @@ Stop.
 
 ---
 
+# Step 7A: Perform read-only Postman discovery
+
+Before requesting human approval, perform all required **read-only** Postman operations needed to understand the target state.
+
+Read-only operations may include:
+
+* `getWorkspaces`
+* `getCollections`
+* `getCollection`
+* other Postman MCP read operations
+
+Determine:
+
+```text
+Target workspace
+Project collection
+Project collection exists? create | reuse
+API folder exists? create | reuse
+Existing requests
+Requests to add
+Requests to update
+Requests requiring no change
+Existing variables
+Variable conflicts
+```
+
+Do not perform any Postman write operation during this step.
+
+The purpose of this step is to prepare an accurate change summary for human review.
+
+---
+
+# Step 7B: Build the proposed change summary
+
+Before asking for approval, calculate the intended changes.
+
+Present:
+
+```text
+Workspace:
+<workspace name>
+
+Project collection:
+<project collection name> (<create | reuse>)
+
+API folder:
+<API folder name> (<create | reuse>)
+
+Local collection:
+<local collection path>
+
+Requests to publish:
+- Add: <number>
+- Update: <number>
+- Preserved (no change): <number>
+
+Scripts:
+- Requests with local events: <number>
+- updateCollectionRequest calls planned: <number>
+
+Variables:
+- To add/update: <number>
+- Conflicts detected: <number>
+```
+
+Do not perform any write operation before approval.
+
+---
+
+# Step 7C: Human approval gate
+
+Before performing **any** Postman write operation, use the `AskUserQuestion` tool.
+
+The approval must be explicit.
+
+Use the `AskUserQuestion` tool with:
+
+```text
+question:
+"The validated API collection is ready to publish to Postman. Do you want me to publish these changes?"
+
+header:
+"Publish to Postman"
+
+options:
+- label: "Approve & Publish"
+  description: "Publish the validated collection, requests, scripts, and applicable variables to the target Postman workspace."
+
+- label: "Reject"
+  description: "Do not make any changes to Postman."
+
+multiSelect:
+false
+```
+
+The approval question must be asked **after read-only discovery/diffing and before the first Postman write operation**.
+
+### If the human approves
+
+Only an explicit affirmative selection such as:
+
+```text
+Approve & Publish
+```
+
+counts as approval.
+
+Proceed to Step 8.
+
+Set:
+
+```text
+Approval:
+approved
+```
+
+### If the human rejects
+
+If the human selects:
+
+```text
+Reject
+```
+
+stop immediately.
+
+Do not call any Postman write operation.
+
+Do not modify the local collection.
+
+Return:
+
+```text
+PUBLISH_NOT_APPROVED
+```
+
+Set:
+
+```text
+Approval:
+denied
+```
+
+### Ambiguous approval
+
+If the approval result is unavailable, ambiguous, or otherwise does not clearly indicate approval:
+
+* Do not publish.
+* Do not call a Postman write operation.
+* Do not modify the local collection.
+* Return `PUBLISH_NOT_APPROVED`.
+
+Never interpret silence or ambiguity as approval.
+
+---
+
 # Step 8: Find or create the project collection
+
+This step may perform writes **only after Step 7C has received explicit approval**.
 
 Search the configured Postman workspace for the exact project collection name.
 
@@ -352,7 +526,7 @@ User API
 
 ### If it does not exist
 
-Create the folder using the ID from the local collection.
+Create the folder using the local folder ID when the applicable MCP operation supports it.
 
 ### If it already exists
 
@@ -372,11 +546,11 @@ Publish:
 * API folder
 * request items
 * request definitions
-* IDs
+* IDs where supported
 * supported request fields
 * variables where applicable
 
-Preserve existing request IDs.
+Preserve existing request IDs when the target MCP operation supports them.
 
 Do not assume that `putCollection` will persist every request-level field.
 
@@ -413,13 +587,11 @@ Do not resend unrelated request fields unless they also need to be changed.
 
 ## Request ID
 
-Use the existing Postman request ID from the local collection as:
+Use the **actual published Postman request ID**.
 
-```text
-requestId
-```
+If the collection creation operation returned a different ID from the local collection, use the returned Postman ID for subsequent `updateCollectionRequest` calls.
 
-Do not generate a new ID.
+Do not assume that the local ID is the published ID after a create operation.
 
 ## Collection ID
 
@@ -468,11 +640,11 @@ Example local collection item:
 }
 ```
 
-The MCP update should use:
+The MCP update should use the actual published request ID:
 
 ```json
 {
-  "requestId": "get-users-id",
+  "requestId": "<published-request-id>",
   "collectionId": "<project-collection-id>",
   "events": [
     {
@@ -588,7 +760,8 @@ For requests that already exist:
 
 For missing requests:
 
-* add them using the IDs from the local collection
+* add them using the IDs from the local collection where supported by the MCP operation
+* capture the actual Postman IDs returned by the creation operation
 
 Do not delete Postman requests unrelated to the current local collection.
 
@@ -669,8 +842,11 @@ After publishing, use Postman MCP to verify:
 
 ```text
 Workspace
+
 └── <project collection>
+
     └── <API folder>
+
         ├── request
         ├── request
         └── ...
@@ -689,7 +865,9 @@ Verify:
 * relevant variables exist
 * no duplicate project collection was created
 * no duplicate API folder was created
-* request IDs are preserved
+* actual published request IDs are available
+
+Do not require local and published IDs to be identical unless the specific MCP operation guarantees ID preservation.
 
 ---
 
@@ -710,7 +888,7 @@ event   → present/absent
 
 The collection payload must preserve all supported request fields that are intended to be published.
 
-If a local request contains `event` and the collection payload intentionally omits it because the MCP operation does not reliably persist it, this is acceptable **only if the request-level script persistence step below will handle it**.
+If a local request contains `event` and the collection payload intentionally omits it because the MCP operation does not reliably persist it, this is acceptable **only if the request-level script persistence step will handle it**.
 
 Do not claim that the script has been published yet.
 
@@ -722,7 +900,9 @@ Before calling `updateCollectionRequest`, verify:
 
 ```text
 Local item.event
+
         ↓
+
 MCP events
 ```
 
@@ -797,7 +977,7 @@ event[].script.exec
 
 PUBLISHED
 
-request.id
+published request ID
 request.name
 request.method
 request.url
@@ -940,19 +1120,33 @@ Publishing is successful only when ALL required conditions are true:
 
 ```text
 Project collection exists                 ✓
+
 API folder exists                         ✓
+
 Expected requests exist                  ✓
-Request IDs preserved                    ✓
+
 Methods/URLs preserved                   ✓
+
 Request bodies preserved                 ✓
+
 Local test events exist                  ✓
+
 Published test events exist              ✓
+
 Test event count matches                 ✓
+
 Test script content is present           ✓
+
 Prerequest scripts preserved             ✓
+
 No duplicate requests                    ✓
+
 No duplicate folders                    ✓
 ```
+
+If the MCP operation guarantees ID preservation, verify the IDs.
+
+If Postman generated new IDs during creation, verify that the resulting published IDs are correctly captured and used for subsequent updates.
 
 A collection with correct requests but missing test scripts is:
 
@@ -974,16 +1168,29 @@ Return exactly one primary status:
 
 ```text
 PUBLISHED
+
 PROJECT_COLLECTION_CREATED
+
 PROJECT_COLLECTION_UPDATED
+
 POSTMAN_MCP_UNAVAILABLE
+
 COLLECTION_MISSING
+
 COLLECTION_INVALID
+
 VARIABLE_CONFLICT
+
 PUBLISH_FAILED
+
+PUBLISH_NOT_APPROVED
 ```
 
 Use `PUBLISH_FAILED` when the Postman state does not contain the validated content that was intended to be published.
+
+Use `PUBLISH_NOT_APPROVED` when the human did not give explicit approval at Step 7C.
+
+When returning `PUBLISH_NOT_APPROVED`, no Postman write operation may have been made.
 
 ---
 
@@ -991,12 +1198,18 @@ Use `PUBLISH_FAILED` when the Postman state does not contain the validated conte
 
 * Use Postman MCP only for Postman publishing.
 * Use the configured Postman workspace.
+* Never call any Postman write MCP operation before explicit human approval is obtained at Step 7C.
+* Use `AskUserQuestion` for the approval gate.
+* Read-only Postman discovery is allowed before approval.
+* If approval is denied or not clearly given, stop and return `PUBLISH_NOT_APPROVED`.
 * Do not create duplicate project collections.
 * Do not create duplicate API folders.
 * Preserve unrelated Postman content.
 * Treat the local collection as the source artifact.
-* Preserve existing item IDs.
-* Do not regenerate existing IDs during publishing.
+* Preserve existing item IDs where the MCP operation supports them.
+* Do not arbitrarily remove IDs when the MCP schema requires them.
+* Do not assume local IDs will always become final Postman IDs after collection creation.
+* Capture and use actual published Postman IDs after create operations.
 * Do not modify the local collection during publishing.
 * Do not modify application source code.
 * Do not install application dependencies.
@@ -1011,7 +1224,7 @@ Use `PUBLISH_FAILED` when the Postman state does not contain the validated conte
 * Use `updateCollectionRequest` for request-level `events`.
 * Map local `event` to MCP `events`.
 * Pass only the fields necessary to `updateCollectionRequest`.
-* Preserve request IDs when calling `updateCollectionRequest`.
+* Use the actual published `requestId` for `updateCollectionRequest`.
 * Do not silently ignore MCP validation errors.
 * Verify the actual published state after writes.
 * Do not report success until scripts have been verified.
@@ -1026,6 +1239,9 @@ Report:
 
 ```text
 Status: <terminal status>
+
+Approval:
+<requested | approved | denied>
 
 Workspace:
 <workspace name>
@@ -1065,8 +1281,13 @@ Variables:
 - Updated: <number>
 - Conflicts: <number>
 
+IDs:
+- Local IDs preserved: <number>
+- Published IDs: <number>
+- IDs regenerated by Postman: <number>
+
 Notes:
 - <relevant MCP or publishing information>
 ```
 
-Do not start another workflow stage yourself. Return the result to the orchestrator.
+## Do not start another workflow stage yourself. Return the result to the orchestrator.
