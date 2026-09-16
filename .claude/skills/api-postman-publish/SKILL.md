@@ -316,6 +316,67 @@ Stop.
 
 ---
 
+# Step 7A: Human approval gate before publishing
+
+Before performing **any** write operation against Postman — including but not limited to `createCollection`, `putCollection`, `createCollectionRequest`, `updateCollectionRequest`, `createCollectionResponse`, `createEnvironment`, `putEnvironment` — stop and request explicit human approval.
+
+Do not call any Postman write tool before approval is granted. Read-only operations (`getWorkspaces`, `getCollections`, `getCollection`, etc.) used for discovery and diffing in Steps 1–7 are not gated by this step.
+
+Present to the human, before asking for approval:
+
+```text
+Workspace:
+<workspace name>
+
+Project collection:
+<project collection name> (<create | reuse>)
+
+API folder:
+<API folder name> (<create | reuse>)
+
+Local collection:
+<local collection path>
+
+Requests to publish:
+- Add: <number>
+- Update: <number>
+- Preserved (no change): <number>
+
+Scripts to persist:
+- Requests with local test/prerequest events: <number>
+- updateCollectionRequest calls planned: <number>
+
+Variables:
+- To add/update: <number>
+- Conflicts detected: <number>
+```
+
+Then ask a direct yes/no approval question, e.g.:
+
+```text
+Publish the above to Postman? (yes/no)
+```
+
+## If the human approves
+
+Only an explicit, unambiguous affirmative (e.g. "yes", "approve", "go ahead", "publish it") counts as approval.
+
+Proceed to Step 8 onward, and perform the write operations.
+
+## If the human does not approve
+
+If the human declines, or responds with anything other than a clear affirmative (including silence, "wait", "not now", or an unrelated reply):
+
+1. Stop immediately.
+2. Do not call any Postman write MCP operation.
+3. Do not modify the local collection.
+4. Return terminal state `PUBLISH_NOT_APPROVED`.
+5. Inform the human that no changes were made to Postman and that publishing was skipped pending approval.
+
+Do not reinterpret an ambiguous or missing reply as approval. When in doubt, treat it as not approved and stop.
+
+---
+
 # Step 8: Find or create the project collection
 
 Search the configured Postman workspace for the exact project collection name.
@@ -981,9 +1042,12 @@ COLLECTION_MISSING
 COLLECTION_INVALID
 VARIABLE_CONFLICT
 PUBLISH_FAILED
+PUBLISH_NOT_APPROVED
 ```
 
 Use `PUBLISH_FAILED` when the Postman state does not contain the validated content that was intended to be published.
+
+Use `PUBLISH_NOT_APPROVED` when the human did not give explicit approval at Step 7A. No Postman write operation may have been made when returning this status.
 
 ---
 
@@ -991,6 +1055,8 @@ Use `PUBLISH_FAILED` when the Postman state does not contain the validated conte
 
 * Use Postman MCP only for Postman publishing.
 * Use the configured Postman workspace.
+* Never call any Postman write MCP operation before explicit human approval is obtained at Step 7A.
+* If approval is denied or not clearly given, stop and exit — return `PUBLISH_NOT_APPROVED` and make no Postman writes.
 * Do not create duplicate project collections.
 * Do not create duplicate API folders.
 * Preserve unrelated Postman content.
@@ -1026,6 +1092,9 @@ Report:
 
 ```text
 Status: <terminal status>
+
+Approval:
+<requested | approved | denied>
 
 Workspace:
 <workspace name>
